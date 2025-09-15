@@ -113,25 +113,60 @@ impl RandomNumberGenerator {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
         self.time_in_sec = now as u32;
     }
-    fn create_random_number(&mut self, min: u64, max: u64) -> u64 {
+    fn create_random_number(&mut self, min: u64, max: u64, random_method: RandomMethod) -> u64 {
         if min >= max {
             panic!("min muss kleiner als max sein!");
         }
         self.set_time_in_sec();
         let range = max - min;
-        let product = self.seed_1
-            .wrapping_mul(self.seed_2)
-            .wrapping_mul(self.time_in_sec as u64);
-        let random_value = product % range as u64;
-        min + random_value
+        match random_method {
+            RandomMethod::RejectionSampling => {
+                let limit = (u64::MAX / range) * range;
+                loop {
+                    let raw_random = self.seed_1
+                        .wrapping_mul(self.seed_2)
+                        .wrapping_mul(self.time_in_sec as u64);
+                    
+                    if raw_random < limit {
+                        return min + (raw_random % range);
+                    }
+                    self.seed_1 = self.seed_1.wrapping_add(1);
+                    self.seed_2 = self.seed_2.wrapping_add(1);
+                }
+            },
+            RandomMethod::Multiplicative => {
+                let a = 6364136223846793005u64;
+                let c = 1u64;
+
+                self.seed_1 = a.wrapping_mul(self.seed_1).wrapping_add(c);
+    
+                let raw_random = self.seed_1;
+                raw_random % range
+            },
+            RandomMethod::XorShift => {
+                let mut x = self.seed_1;
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                
+                self.seed_1 = x;
+                x % range
+            },
+        }
     }
     fn reset_seeds(&mut self) {
         self.set_time_in_sec();
-        self.seed_1 = self.create_random_number(0, 18446744073709551615);
-        self.seed_2 = self.create_random_number(0, 18446744073709551615);
+        let time_nano = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
+        
+        self.seed_1 = (self.time_in_sec as u64).wrapping_mul(6364136223846793005);
+        self.seed_2 = (time_nano as u64).wrapping_mul(1103515245);
     }
 }
-
+enum RandomMethod {
+    RejectionSampling,
+    Multiplicative,
+    XorShift,
+}
 fn main() {
     let mut password_settings = PasswordSettings{
         number_characters: 12,
@@ -144,7 +179,6 @@ fn main() {
         seed_2: 5921083746291455983,
         time_in_sec: 0,
     };
-    let num = random_number_generator.create_random_number(1, 23);
-    print!("{}", num);
+
 
 }
